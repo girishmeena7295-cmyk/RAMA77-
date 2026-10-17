@@ -3,6 +3,8 @@ name: Build RAMA77 Android APK
 on:
   push:
     branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -10,46 +12,52 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Setup JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    - name: Extract Project Files
-      run: |
-        ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
-        if [ -n "$ZIP_FILE" ]; then
-          echo "Extracting found zip: $ZIP_FILE"
-          unzip -o "$ZIP_FILE" -d extracted_temp
-          TARGET_DIR=$(dirname $(find extracted_temp -name "build.gradle*" | head -n 1))
-          if [ -n "$TARGET_DIR" ]; then
-            echo "Moving files from $TARGET_DIR to workspace root..."
-            shopt -s dotglob
-            cp -rn "$TARGET_DIR"/* .
+      - name: Extract Project Files
+        run: |
+          ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Extracting found zip: $ZIP_FILE"
+            unzip -o "$ZIP_FILE" -d extracted_temp
+            
+            GRADLE_FILE=$(find extracted_temp -name "build.gradle*" | head -n 1)
+            if [ -n "$GRADLE_FILE" ]; then
+              TARGET_DIR=$(dirname "$GRADLE_FILE")
+              echo "Moving files from $TARGET_DIR to workspace root..."
+              shopt -s dotglob
+              cp -rn "$TARGET_DIR"/* .
+            else
+              echo "No build.gradle found directly. Moving all extracted files to root..."
+              shopt -s dotglob
+              cp -rn extracted_temp/* .
+            fi
             rm -rf extracted_temp
           fi
-        fi
 
-    - name: Ensure Gradle Executable
-      run: |
-        if [ -f "gradlew" ]; then
-          chmod +x gradlew
-        else
-          echo "Generating Gradle Wrapper..."
-          gradle wrapper --gradle-version 8.2
-          chmod +x gradlew
-        fi
+      - name: Check Nested APKs or Build
+        run: |
+          if [ -f "public/RAMA77-v2.6.apk" ]; then
+            echo "Pre-built APK found in public directory!"
+            mkdir -p app/build/outputs/apk/debug/
+            cp public/RAMA77-v2.6.apk app/build/outputs/apk/debug/app-debug.apk
+          elif [ -f "gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --stacktrace --continue
+          else
+            echo "No gradlew or prebuilt APK found!"
+            exit 1
+          fi
 
-    - name: Build Debug APK
-      run: |
-        ./gradlew assembleDebug --stacktrace --continue
-
-    - name: Upload Debug APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: RAMA77-Debug-APK
-        path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAMA77-Debug-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
